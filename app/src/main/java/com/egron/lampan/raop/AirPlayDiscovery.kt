@@ -271,6 +271,14 @@ class AirPlayDiscovery(context: Context) {
                 ?.toString(Charsets.UTF_8)
         val raopReceiverId = serviceName.substringBefore('@')
             .takeIf { kind.protocol == AirPlayProtocol.AIRPLAY_1 && it.length == 12 }
+        fun txt(key: String): String? = attributes.entries
+            .firstOrNull { it.key.equals(key, ignoreCase = true) }
+            ?.value?.toString(Charsets.UTF_8)
+
+        val supportsClassicRaop = kind.protocol == AirPlayProtocol.AIRPLAY_1 &&
+            txt("am").equals("ShairportSync", ignoreCase = true) &&
+            txt("pw").equals("false", ignoreCase = true) &&
+            txt("et")?.split(',')?.any { it.trim() == "0" } == true
         return AirPlayDevice(
             name = displayName,
             ip = ip,
@@ -279,6 +287,7 @@ class AirPlayDiscovery(context: Context) {
             airPlay2RequiresPassword = requiresPassword,
             receiverId = (advertisedReceiverId ?: raopReceiverId)
                 ?.let(::normalizeAirPlayReceiverId),
+            protocolPreference = AirPlayProtocol.CLASSIC_RAOP.takeIf { supportsClassicRaop },
         )
     }
 

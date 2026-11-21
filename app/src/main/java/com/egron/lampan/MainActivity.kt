@@ -1148,10 +1148,12 @@ fun MainScreen(
                                     },
                                 ) {
                                     val rememberedPreference = knownDevices
-                                        .firstOrNull { it.ip == device.ip }
+                                        .firstOrNull {
+                                            preferredReceiverAddress(it) == preferredReceiverAddress(device)
+                                        }
                                         ?.protocolPreference
                                     val selected = device.copy(
-                                        protocolPreference = rememberedPreference,
+                                        protocolPreference = rememberedPreference ?: device.protocolPreference,
                                     )
                                     val protocol = selected.preferredProtocol
                                     val port = requireNotNull(selected.portFor(protocol))
