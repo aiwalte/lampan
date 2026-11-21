@@ -15,6 +15,7 @@ import java.util.concurrent.Semaphore
 enum class AirPlayProtocol {
     AIRPLAY_1,
     AIRPLAY_2,
+    CLASSIC_RAOP,
 }
 
 data class AirPlayDevice(
@@ -32,17 +33,20 @@ data class AirPlayDevice(
                 AirPlayProtocol.AIRPLAY_2
             protocolPreference == AirPlayProtocol.AIRPLAY_1 && airPlay1Port != null ->
                 AirPlayProtocol.AIRPLAY_1
+            protocolPreference == AirPlayProtocol.CLASSIC_RAOP && airPlay1Port != null ->
+                AirPlayProtocol.CLASSIC_RAOP
             airPlay1Port != null -> AirPlayProtocol.AIRPLAY_1
             else -> AirPlayProtocol.AIRPLAY_2
         }
 
     fun portFor(protocol: AirPlayProtocol): Int? = when (protocol) {
-        AirPlayProtocol.AIRPLAY_1 -> airPlay1Port
+        AirPlayProtocol.AIRPLAY_1, AirPlayProtocol.CLASSIC_RAOP -> airPlay1Port
         AirPlayProtocol.AIRPLAY_2 -> airPlay2Port
     }
 
     val protocolLabel: String
         get() = when {
+            preferredProtocol == AirPlayProtocol.CLASSIC_RAOP -> "Classic RAOP"
             airPlay1Port != null && airPlay2Port != null -> "AirPlay 1 + 2"
             airPlay2Port != null -> "AirPlay 2"
             else -> "AirPlay 1"
@@ -95,7 +99,7 @@ class AirPlayDiscovery(context: Context) {
                     ?: return@synchronized null
                 val current = foundDevices[address] ?: return@synchronized null
                 val updated = when (kind.protocol) {
-                    AirPlayProtocol.AIRPLAY_1 -> current.copy(airPlay1Port = null)
+                    AirPlayProtocol.AIRPLAY_1, AirPlayProtocol.CLASSIC_RAOP -> current.copy(airPlay1Port = null)
                     AirPlayProtocol.AIRPLAY_2 -> current.copy(
                         airPlay2Port = null,
                         airPlay2RequiresPassword = null,
@@ -268,6 +272,14 @@ class AirPlayDiscovery(context: Context) {
                 ?.toString(Charsets.UTF_8)
         val raopReceiverId = serviceName.substringBefore('@')
             .takeIf { kind.protocol == AirPlayProtocol.AIRPLAY_1 && it.length == 12 }
+        fun txt(key: String): String? = attributes.entries
+            .firstOrNull { it.key.equals(key, ignoreCase = true) }
+            ?.value?.toString(Charsets.UTF_8)
+
+        val supportsClassicRaop = kind.protocol == AirPlayProtocol.AIRPLAY_1 &&
+            txt("am").equals("ShairportSync", ignoreCase = true) &&
+            txt("pw").equals("false", ignoreCase = true) &&
+            txt("et")?.split(',')?.any { it.trim() == "0" } == true
         return AirPlayDevice(
             name = displayName,
             ip = ip,
@@ -276,6 +288,7 @@ class AirPlayDiscovery(context: Context) {
             airPlay2RequiresPassword = requiresPassword,
             receiverId = (advertisedReceiverId ?: raopReceiverId)
                 ?.let(::normalizeAirPlayReceiverId),
+            protocolPreference = AirPlayProtocol.CLASSIC_RAOP.takeIf { supportsClassicRaop },
         )
     }
 

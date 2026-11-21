@@ -355,13 +355,14 @@ fun MainScreen(
                 name = current?.name ?: host,
                 ip = host,
                 airPlay1Port = current?.airPlay1Port
-                    ?: port.takeIf { receiverProtocol == AirPlayProtocol.AIRPLAY_1 },
+                    ?: port.takeIf { receiverProtocol != AirPlayProtocol.AIRPLAY_2 },
                 airPlay2Port = current?.airPlay2Port
                     ?: port.takeIf { receiverProtocol == AirPlayProtocol.AIRPLAY_2 },
                 airPlay2RequiresPassword = current?.airPlay2RequiresPassword
                     ?: true.takeIf { receiverProtocol == AirPlayProtocol.AIRPLAY_2 },
                 receiverId = current?.receiverId,
-                protocolPreference = current?.protocolPreference,
+                protocolPreference = receiverProtocol.takeIf { it == AirPlayProtocol.CLASSIC_RAOP }
+                    ?: current?.protocolPreference,
             )
             prefsManager.saveAirPlayCapabilities(remembered, currentSsid)
             selectedDevice = remembered
@@ -457,8 +458,15 @@ fun MainScreen(
                 targets.map { address ->
                     async(Dispatchers.IO) {
                         val (host, port) = parseIpAndPort(address)
+                        val device = selectedDevice?.takeIf { preferredReceiverAddress(it) == address }
+                            ?: prefsManager.getAirPlayCapabilities(address)
                         address to runCatching {
-                            AirPlayReceiverProbe(host, port).getInfo()
+                            val probe = AirPlayReceiverProbe(host, port)
+                            if (device?.preferredProtocol == AirPlayProtocol.CLASSIC_RAOP) {
+                                probe.checkClassicRaop()
+                            } else {
+                                probe.getInfo()
+                            }
                         }.getOrNull()
                     }
                 }.awaitAll().toMap()
@@ -814,6 +822,7 @@ fun MainScreen(
                 rawIp = ipAddress,
                 volume = volume,
                 useAirPlay2 = receiverProtocol == AirPlayProtocol.AIRPLAY_2,
+                useClassicRaop = receiverProtocol == AirPlayProtocol.CLASSIC_RAOP,
                 useTransientAirPlay2 = receiverProtocol == AirPlayProtocol.AIRPLAY_2 &&
                     selectedDevice?.airPlay2RequiresPassword == false,
                 airPlay2Password = airPlay2Password.takeIf { it.isNotEmpty() },
@@ -1146,10 +1155,12 @@ fun MainScreen(
                                     },
                                 ) {
                                     val rememberedPreference = knownDevices
-                                        .firstOrNull { it.ip == device.ip }
+                                        .firstOrNull {
+                                            preferredReceiverAddress(it) == preferredReceiverAddress(device)
+                                        }
                                         ?.protocolPreference
                                     val selected = device.copy(
-                                        protocolPreference = rememberedPreference,
+                                        protocolPreference = rememberedPreference ?: device.protocolPreference,
                                     )
                                     val protocol = selected.preferredProtocol
                                     val port = requireNotNull(selected.portFor(protocol))
@@ -1296,7 +1307,6 @@ fun MainScreen(
                     val selectableDevice = selectedDevice
                     if (
                         showReceiverOptions && selectableDevice?.airPlay1Port != null &&
-                        selectableDevice.airPlay2Port != null &&
                         selectedReceiverAddresses.size <= 1
                     ) {
                         Spacer(modifier = Modifier.height(8.dp))
@@ -1311,7 +1321,9 @@ fun MainScreen(
                             listOf(
                                 AirPlayProtocol.AIRPLAY_1 to "AirPlay 1",
                                 AirPlayProtocol.AIRPLAY_2 to "AirPlay 2",
-                            ).forEach { (protocol, label) ->
+                                AirPlayProtocol.CLASSIC_RAOP to "Classic RAOP",
+                            ).filter { (protocol, _) -> selectableDevice.portFor(protocol) != null }
+                                .forEach { (protocol, label) ->
                                 val chooseProtocol = {
                                     val oldAddress = preferredReceiverAddress(selectableDevice)
                                     val updated = selectableDevice.copy(
@@ -1347,7 +1359,7 @@ fun MainScreen(
                             }
                         }
                         Text(
-                            text = "Use AirPlay 1 for most speakers. Try AirPlay 2 if your TV or speaker requires it.",
+                            text = "Classic RAOP sends unencrypted audio to receivers such as Shairport Sync.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1373,7 +1385,7 @@ fun MainScreen(
                             ) { Text("AirPlay 1") }
                         }
 
-                        if (!airPlay1Selected) {
+                        if (receiverProtocol == AirPlayProtocol.AIRPLAY_2) {
                             Button(
                                 onClick = {},
                                 modifier = Modifier.weight(1f),
@@ -1386,6 +1398,22 @@ fun MainScreen(
                                 enabled = !isConnected && !isConnecting,
                             ) { Text("AirPlay 2") }
                         }
+                    }
+                }
+
+                if (showManualEntry && (isAddingDevice || knownDevices.isEmpty())) {
+                    OutlinedButton(
+                        onClick = { receiverProtocol = AirPlayProtocol.CLASSIC_RAOP },
+                        enabled = !isConnected && !isConnecting,
+                    ) {
+                        Text(if (receiverProtocol == AirPlayProtocol.CLASSIC_RAOP) {
+                            "Classic RAOP (selected)"
+                        } else {
+                            "Classic RAOP"
+                        })
+                    }
+                    if (receiverProtocol == AirPlayProtocol.CLASSIC_RAOP) {
+                        Text("Unencrypted audio. Use with a trusted receiver on your local network.")
                     }
                 }
 
@@ -2231,6 +2259,7 @@ fun startService(
     rawIp: String,
     volume: Float,
     useAirPlay2: Boolean = false,
+    useClassicRaop: Boolean = false,
     useTransientAirPlay2: Boolean = false,
     airPlay2Password: String? = null,
     receiverAddresses: List<String> = emptyList(),
@@ -2245,6 +2274,7 @@ fun startService(
         putExtra("PORT", port)
         putExtra("INITIAL_VOLUME", volume)
         putExtra("AIRPLAY2", useAirPlay2)
+        putExtra("CLASSIC_RAOP", useClassicRaop)
         putExtra("AIRPLAY2_TRANSIENT", useTransientAirPlay2)
         airPlay2Password?.let { putExtra("AIRPLAY2_PASSWORD", it) }
         putStringArrayListExtra("RECEIVERS", ArrayList(receiverAddresses))

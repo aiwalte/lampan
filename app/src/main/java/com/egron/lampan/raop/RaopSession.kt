@@ -22,7 +22,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-class RaopSession(private var host: String, private val port: Int = 7000, private val logCallback: ((String) -> Unit)? = null) {
+class RaopSession(
+    private var host: String,
+    private val port: Int = 7000,
+    private val logCallback: ((String) -> Unit)? = null,
+    private val classicRaop: Boolean = false,
+) {
     private val TAG = "RaopSession"
     private val client = RtspClient(
         host,
@@ -118,38 +123,40 @@ class RaopSession(private var host: String, private val port: Int = 7000, privat
         ))
         log("OPTIONS code ${options.code}")
 
-        val bcClientKeyPair = generateCurve25519KeyPairBouncyCastle()
-        val clientPublicKeyBytes = (bcClientKeyPair.public as X25519PublicKeyParameters).encoded
-        
-        val authRequestBody = ByteArray(33)
-        authRequestBody[0] = 0x01.toByte() 
-        System.arraycopy(clientPublicKeyBytes, 0, authRequestBody, 1, 32)
-        
-        val authSetupHeaders = mapOf(
-           "Content-Type" to "application/octet-stream",
-           "Client-Instance" to clientInstance!!,
-           "DACP-ID" to clientInstance!!,
-           "User-Agent" to "Lampan/0.1.0"
-        )
-        
-        val authSetup = client.sendRequest("POST", "/auth-setup", authSetupHeaders, rawBody = authRequestBody)
-        if (authSetup.code != 200) {
-            val errorMsg = "AUTH-SETUP failed: ${authSetup.code}"
-            log(errorMsg)
-            throw Exception(errorMsg)
+        if (classicRaop) {
+            log("Classic RAOP: starting unencrypted audio session")
+        } else {
+            val bcClientKeyPair = generateCurve25519KeyPairBouncyCastle()
+            val clientPublicKeyBytes = (bcClientKeyPair.public as X25519PublicKeyParameters).encoded
+
+            val authRequestBody = ByteArray(33)
+            authRequestBody[0] = 0x01.toByte()
+            System.arraycopy(clientPublicKeyBytes, 0, authRequestBody, 1, 32)
+
+            val authSetupHeaders = mapOf(
+               "Content-Type" to "application/octet-stream",
+               "Client-Instance" to clientInstance!!,
+               "DACP-ID" to clientInstance!!,
+               "User-Agent" to "Lampan/0.1.0"
+            )
+
+            val authSetup = client.sendRequest("POST", "/auth-setup", authSetupHeaders, rawBody = authRequestBody)
+            if (authSetup.code != 200) {
+                val errorMsg = "AUTH-SETUP failed: ${authSetup.code}"
+                log(errorMsg)
+                throw Exception(errorMsg)
+            }
+
+            delay(200)
+
+            val serverCurve25519PublicKeyBytes = client.parseAuthSetupResponse(authSetup.rawBody)
+            val bcAgreement = X25519Agreement()
+            bcAgreement.init(bcClientKeyPair.private)
+            val serverBCPublicKeyParams = X25519PublicKeyParameters(serverCurve25519PublicKeyBytes, 0)
+            val sharedSecretBytes = ByteArray(bcAgreement.agreementSize)
+            bcAgreement.calculateAgreement(serverBCPublicKeyParams, sharedSecretBytes, 0)
         }
-        
-        delay(200)
-        
-        val serverCurve25519PublicKeyBytes = client.parseAuthSetupResponse(authSetup.rawBody)
-        val bcAgreement = X25519Agreement()
-        bcAgreement.init(bcClientKeyPair.private)
-        val serverBCPublicKeyParams = X25519PublicKeyParameters(serverCurve25519PublicKeyBytes, 0)
-        val sharedSecretBytes = ByteArray(bcAgreement.agreementSize)
-        bcAgreement.calculateAgreement(serverBCPublicKeyParams, sharedSecretBytes, 0)
-        
-        log("Shared Secret (first 8 bytes): ${sharedSecretBytes.take(8).joinToString("") { "%02x".format(it) }}...")
-        
+
         // Announce AppleLossless (ALAC)
         val rtpMapLine = "a=rtpmap:96 AppleLossless"
 
