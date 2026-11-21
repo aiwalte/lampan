@@ -458,8 +458,15 @@ fun MainScreen(
                 targets.map { address ->
                     async(Dispatchers.IO) {
                         val (host, port) = parseIpAndPort(address)
+                        val device = selectedDevice?.takeIf { preferredReceiverAddress(it) == address }
+                            ?: prefsManager.getAirPlayCapabilities(address)
                         address to runCatching {
-                            AirPlayReceiverProbe(host, port).getInfo()
+                            val probe = AirPlayReceiverProbe(host, port)
+                            if (device?.preferredProtocol == AirPlayProtocol.CLASSIC_RAOP) {
+                                probe.checkClassicRaop()
+                            } else {
+                                probe.getInfo()
+                            }
                         }.getOrNull()
                     }
                 }.awaitAll().toMap()

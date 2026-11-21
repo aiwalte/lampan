@@ -12,6 +12,28 @@ class AirPlayReceiverProbe(
     private val host: String,
     private val port: Int,
 ) {
+    fun checkClassicRaop(): AirPlayReceiverInfo {
+        val client = RtspClient(host, port, logCallback = {})
+        try {
+            client.connect()
+            val response = client.sendRequest(
+                method = "OPTIONS",
+                url = "*",
+                headers = mapOf("User-Agent" to "Lampan/0.1.0"),
+                logExchange = false,
+            )
+            val methods = response.headers.entries
+                .firstOrNull { it.key.equals("Public", ignoreCase = true) }
+                ?.value?.split(',').orEmpty().map { it.trim().uppercase() }
+            if (response.code !in 200..299 || !methods.containsAll(listOf("ANNOUNCE", "SETUP", "RECORD"))) {
+                throw AirPlay2ConnectionException("Receiver did not advertise classic RAOP playback")
+            }
+            return AirPlayReceiverInfo(null, emptySet(), null, null)
+        } finally {
+            client.close()
+        }
+    }
+
     fun getInfo(): AirPlayReceiverInfo {
         val client = RtspClient(
             host = host,
