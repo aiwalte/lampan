@@ -1300,7 +1300,6 @@ fun MainScreen(
                     val selectableDevice = selectedDevice
                     if (
                         showReceiverOptions && selectableDevice?.airPlay1Port != null &&
-                        selectableDevice.airPlay2Port != null &&
                         selectedReceiverAddresses.size <= 1
                     ) {
                         Spacer(modifier = Modifier.height(8.dp))
@@ -1315,7 +1314,9 @@ fun MainScreen(
                             listOf(
                                 AirPlayProtocol.AIRPLAY_1 to "AirPlay 1",
                                 AirPlayProtocol.AIRPLAY_2 to "AirPlay 2",
-                            ).forEach { (protocol, label) ->
+                                AirPlayProtocol.CLASSIC_RAOP to "Classic RAOP",
+                            ).filter { (protocol, _) -> selectableDevice.portFor(protocol) != null }
+                                .forEach { (protocol, label) ->
                                 val chooseProtocol = {
                                     val oldAddress = preferredReceiverAddress(selectableDevice)
                                     val updated = selectableDevice.copy(
@@ -1351,7 +1352,7 @@ fun MainScreen(
                             }
                         }
                         Text(
-                            text = "Use AirPlay 1 for most speakers. Try AirPlay 2 if your TV or speaker requires it.",
+                            text = "Classic RAOP sends unencrypted audio to receivers such as Shairport Sync.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
