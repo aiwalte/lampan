@@ -46,6 +46,7 @@ data class AirPlayDevice(
 
     val protocolLabel: String
         get() = when {
+            preferredProtocol == AirPlayProtocol.CLASSIC_RAOP -> "Classic RAOP"
             airPlay1Port != null && airPlay2Port != null -> "AirPlay 1 + 2"
             airPlay2Port != null -> "AirPlay 2"
             else -> "AirPlay 1"
