@@ -96,6 +96,7 @@ class AudioCaptureService : Service() {
                         port,
                         initialVolume,
                         useAirPlay2,
+                        intent.getBooleanExtra("CLASSIC_RAOP", false),
                         useTransientAirPlay2,
                         airPlay2Password,
                         receivers,
@@ -191,6 +192,7 @@ class AudioCaptureService : Service() {
         port: Int,
         initialVolume: Float,
         useAirPlay2: Boolean,
+        useClassicRaop: Boolean,
         useTransientAirPlay2: Boolean,
         airPlay2Password: String?,
         receiverAddresses: List<String>,
@@ -225,6 +227,7 @@ class AudioCaptureService : Service() {
                     fallbackTransient = requestedReceivers.size == 1 &&
                         capabilitiesMissing(preferences, address) && useTransientAirPlay2,
                     enteredPassword = airPlay2Password.takeIf { address == receiver },
+                    forceClassicRaop = useClassicRaop && address == receiver,
                 )
             }
             val preparedSessions = targets.associate { target ->
@@ -453,17 +456,22 @@ class AudioCaptureService : Service() {
         fallbackUsesAirPlay2: Boolean = false,
         fallbackTransient: Boolean = false,
         enteredPassword: String? = null,
+        forceClassicRaop: Boolean = false,
     ): ReceiverTarget {
         val (targetHost, targetPort) = parseReceiverAddress(address)
         val capabilities = preferences.getAirPlayCapabilities(address)
-        val targetUsesAirPlay2 = capabilities?.preferredProtocol == AirPlayProtocol.AIRPLAY_2 ||
-            (capabilities == null && fallbackUsesAirPlay2)
+        val classicRaop = forceClassicRaop || capabilities?.preferredProtocol == AirPlayProtocol.CLASSIC_RAOP
+        val targetUsesAirPlay2 = !classicRaop && (
+            capabilities?.preferredProtocol == AirPlayProtocol.AIRPLAY_2 ||
+                (capabilities == null && fallbackUsesAirPlay2)
+            )
         return ReceiverTarget(
             address = address,
             host = targetHost,
             port = targetPort,
             name = capabilities?.name ?: address,
             useAirPlay2 = targetUsesAirPlay2,
+            classicRaop = classicRaop,
             transient = capabilities?.airPlay2RequiresPassword == false ||
                 (capabilities == null && fallbackTransient),
             password = enteredPassword?.takeIf(String::isNotEmpty)
@@ -522,7 +530,7 @@ class AudioCaptureService : Service() {
         } else {
             ReceiverSession(
                 target = target,
-                airPlay1 = RaopSession(target.host, target.port, sessionLog).also { it.networkClock = networkClock },
+                airPlay1 = RaopSession(target.host, target.port, sessionLog, target.classicRaop).also { it.networkClock = networkClock },
             )
         }
     }
@@ -696,6 +704,7 @@ class AudioCaptureService : Service() {
         val port: Int,
         val name: String,
         val useAirPlay2: Boolean,
+        val classicRaop: Boolean,
         val transient: Boolean,
         val password: String?,
     )

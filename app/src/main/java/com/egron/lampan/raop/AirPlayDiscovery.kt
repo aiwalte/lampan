@@ -15,6 +15,7 @@ import java.util.concurrent.Semaphore
 enum class AirPlayProtocol {
     AIRPLAY_1,
     AIRPLAY_2,
+    CLASSIC_RAOP,
 }
 
 data class AirPlayDevice(
@@ -32,12 +33,14 @@ data class AirPlayDevice(
                 AirPlayProtocol.AIRPLAY_2
             protocolPreference == AirPlayProtocol.AIRPLAY_1 && airPlay1Port != null ->
                 AirPlayProtocol.AIRPLAY_1
+            protocolPreference == AirPlayProtocol.CLASSIC_RAOP && airPlay1Port != null ->
+                AirPlayProtocol.CLASSIC_RAOP
             airPlay1Port != null -> AirPlayProtocol.AIRPLAY_1
             else -> AirPlayProtocol.AIRPLAY_2
         }
 
     fun portFor(protocol: AirPlayProtocol): Int? = when (protocol) {
-        AirPlayProtocol.AIRPLAY_1 -> airPlay1Port
+        AirPlayProtocol.AIRPLAY_1, AirPlayProtocol.CLASSIC_RAOP -> airPlay1Port
         AirPlayProtocol.AIRPLAY_2 -> airPlay2Port
     }
 
@@ -95,7 +98,7 @@ class AirPlayDiscovery(context: Context) {
                     ?: return@synchronized null
                 val current = foundDevices[address] ?: return@synchronized null
                 val updated = when (kind.protocol) {
-                    AirPlayProtocol.AIRPLAY_1 -> current.copy(airPlay1Port = null)
+                    AirPlayProtocol.AIRPLAY_1, AirPlayProtocol.CLASSIC_RAOP -> current.copy(airPlay1Port = null)
                     AirPlayProtocol.AIRPLAY_2 -> current.copy(
                         airPlay2Port = null,
                         airPlay2RequiresPassword = null,
